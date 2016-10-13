@@ -1,7 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>miniWebRTC</title>
-<script src="https://cjb.github.io/serverless-webrtc/js/jquery-2.0.0.js"></script>
 
 <h3>Create or join a room?</h3>
 <button id="createBtn">BOB: Create</button>
@@ -168,13 +167,6 @@ if (navigator.mozGetUserMedia) {
 }
 
 
-/* See also:
-    http://www.html5rocks.com/en/tutorials/webrtc/basics/
-    https://code.google.com/p/webrtc-samples/source/browse/trunk/apprtc/index.html
-
-    https://webrtc-demos.appspot.com/html/pc1.html
-*/
-
 var cfg = {'iceServers': [{'url': 'stun:23.21.150.121'}]},
   con = { 'optional': [{'DtlsSrtpKeyAgreement': true}] }
 
@@ -198,14 +190,14 @@ var sdpConstraints = {
 }
 
 function sendMessage () {
-  if ($('#messageTextBox').val()) {
+  if (messageTextBox.value) {
     var channel = new RTCMultiSession()
-    writeToChatLog($('#messageTextBox').val(), 'text-success')
-    channel.send({message: $('#messageTextBox').val()})
-    $('#messageTextBox').val('')
+    channel.send({message: messageTextBox.value})
+    writeToChatLog(messageTextBox.value);
+    messageTextBox.value = "";
 
     // Scroll chat text area to the bottom on new input.
-    $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+    chatlog.scrollTop = chatlog.scrollHeight;
   }
 
   return false
@@ -216,7 +208,6 @@ function setupDC1 () {
     var fileReceiver1 = new FileReceiver()
     dc1 = pc1.createDataChannel('test', {reliable: true})
     activedc = dc1
-    console.log('Created datachannel (pc1)')
     dc1.onopen = function (e) {
     }
     dc1.onmessage = function (e) {
@@ -230,14 +221,14 @@ function setupDC1 () {
           // leave it in, JSON.parse() will barf.
           return
         }
-        console.log(e)
         var data = JSON.parse(e.data)
         if (data.type === 'file') {
           fileReceiver1.receive(e.data, {})
         } else {
-          writeToChatLog(data.message, 'text-info')
+          writeToChatLog(data.message);
+          
           // Scroll chat text area to the bottom on new input.
-          $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+          chatlog.scrollTop = chatlog.scrollHeight
         }
       }
     }
@@ -261,11 +252,7 @@ function handleOnaddstream (e) {
 pc1.onaddstream = handleOnaddstream
 
 function handleOnconnection () {
-  console.log('Datachannel connected')
-  writeToChatLog('Datachannel connected', 'text-success')
-  // If we didn't call remove() here, there would be a race on pc2:
-  //   - first onconnection() hides the dialog, then someone clicks
-  //     on answerSentBtn which shows it, and it stays shown forever.
+  writeToChatLog('Datachannel connected')
 }
 
 pc1.onconnection = handleOnconnection
@@ -287,8 +274,6 @@ pc1.oniceconnectionstatechange = oniceconnectionstatechange
 pc1.onicegatheringstatechange = onicegatheringstatechange
 
 function handleAnswerFromPC2 (answerDesc) {
-  console.log('Received remote answer: ', answerDesc)
-  writeToChatLog('Received remote answer', 'text-success')
   pc1.setRemoteDescription(answerDesc)
 }
 
@@ -320,9 +305,9 @@ pc2.ondatachannel = function (e) {
       if (data.type === 'file') {
         fileReceiver2.receive(e.data, {})
       } else {
-        writeToChatLog(data.message, 'text-info')
+        writeToChatLog(data.message);
         // Scroll chat text area to the bottom on new input.
-        $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+        chatlog.scrollTop = chatlog.scrollHeight;
       }
     }
   }
@@ -331,7 +316,6 @@ pc2.ondatachannel = function (e) {
 function handleOfferFromPC1 (offerDesc) {
   pc2.setRemoteDescription(offerDesc)
   pc2.createAnswer(function (answerDesc) {
-    writeToChatLog('Created local answer', 'text-success')
     pc2.setLocalDescription(answerDesc)
   },
   function () { console.warn("Couldn't create offer") },
@@ -368,14 +352,9 @@ function getTimestamp () {
   return result
 }
 
-function writeToChatLog (message, message_type) {
-  document.getElementById('chatlog').innerHTML += '<p class="' + message_type + '">' + '[' + getTimestamp() + '] ' + message + '</p>'
+function writeToChatLog (message) {
+  chatlog.innerHTML += '[' + getTimestamp() + '] ' + message + '</p>'
 }
-
-/*  MIT License: https://webrtc-experiment.appspot.com/licence/
- *	2013, Muaz Khan<muazkh>--[ github.com/muaz-khan ]
- */
-/* For documentation and examples: http://bit.ly/RTCDataConnection */
 
 window.moz = !! navigator.mozGetUserMedia
 
