@@ -83,7 +83,6 @@ var reattachMediaStream = null
 var webrtcDetectedBrowser = null
 
 if (navigator.mozGetUserMedia) {
-  console.log('This appears to be Firefox')
 
   webrtcDetectedBrowser = 'firefox'
 
@@ -102,13 +101,11 @@ if (navigator.mozGetUserMedia) {
 
   // Attach a media stream to an element.
   attachMediaStream = function (element, stream) {
-    console.log('Attaching media stream')
     element.mozSrcObject = stream
     element.play()
   }
 
   reattachMediaStream = function (to, from) {
-    console.log('Reattaching media stream')
     to.mozSrcObject = from.mozSrcObject
     to.play()
   }
@@ -122,7 +119,6 @@ if (navigator.mozGetUserMedia) {
     return []
   }
 } else if (navigator.webkitGetUserMedia) {
-  console.log('This appears to be Chrome')
 
   webrtcDetectedBrowser = 'chrome'
 
@@ -163,7 +159,6 @@ if (navigator.mozGetUserMedia) {
     }
   }
 } else {
-  console.log('Browser does not appear to be WebRTC-capable')
 }
 
 
@@ -183,10 +178,6 @@ var pc1icedone = false
 
 var sdpConstraints = {
   optional: [],
-  mandatory: {
-    OfferToReceiveAudio: true,
-    OfferToReceiveVideo: true
-  }
 }
 
 function sendMessage () {
@@ -205,13 +196,11 @@ function sendMessage () {
 
 function setupDC1 () {
   try {
-    var fileReceiver1 = new FileReceiver()
+
     dc1 = pc1.createDataChannel('test', {reliable: true})
     activedc = dc1
-    dc1.onopen = function (e) {
-    }
+    dc1.onopen = function (e) { }
     dc1.onmessage = function (e) {
-      console.log('Got message (pc1)', e.data)
       if (e.data.size) {
         fileReceiver1.receive(e.data, {})
       } else {
@@ -232,24 +221,14 @@ function setupDC1 () {
         }
       }
     }
-  } catch (e) { console.warn('No data channel (pc1)', e); }
+  } catch (e) { }
 }
 
 pc1.onicecandidate = function (e) {
-  console.log('ICE candidate (pc1)', e)
   if (e.candidate == null) {
     localOffer.value = JSON.stringify(pc1.localDescription);
   }
 }
-
-function handleOnaddstream (e) {
-  console.log('Got remote stream', e.stream)
-  var el = document.getElementById('remoteVideo')
-  el.autoplay = true
-  attachMediaStream(el, e.stream)
-}
-
-pc1.onaddstream = handleOnaddstream
 
 function handleOnconnection () {
   writeToChatLog('Datachannel connected')
@@ -258,15 +237,12 @@ function handleOnconnection () {
 pc1.onconnection = handleOnconnection
 
 function onsignalingstatechange (state) {
-  console.info('signaling state change:', state)
 }
 
 function oniceconnectionstatechange (state) {
-  console.info('ice connection state change:', state)
 }
 
 function onicegatheringstatechange (state) {
-  console.info('ice gathering state change:', state)
 }
 
 pc1.onsignalingstatechange = onsignalingstatechange
@@ -289,15 +265,11 @@ var pc2 = new RTCPeerConnection(cfg, con),
 var pc2icedone = false
 
 pc2.ondatachannel = function (e) {
-  var fileReceiver2 = new FileReceiver()
   var datachannel = e.channel || e; // Chrome sends event, FF sends raw channel
-  console.log('Received datachannel (pc2)', arguments)
   dc2 = datachannel
   activedc = dc2
-  dc2.onopen = function (e) {
-  }
+  dc2.onopen = function (e) { }
   dc2.onmessage = function (e) {
-    console.log('Got message (pc2)', e.data)
     if (e.data.size) {
       fileReceiver2.receive(e.data, {})
     } else {
@@ -318,7 +290,7 @@ function handleOfferFromPC1 (offerDesc) {
   pc2.createAnswer(function (answerDesc) {
     pc2.setLocalDescription(answerDesc)
   },
-  function () { console.warn("Couldn't create offer") },
+  function () { },
   sdpConstraints)
 }
 
@@ -336,7 +308,6 @@ function handleCandidateFromPC1 (iceCandidate) {
   pc2.addIceCandidate(iceCandidate)
 }
 
-pc2.onaddstream = handleOnaddstream
 pc2.onconnection = handleOnconnection
 
 function getTimestamp () {
@@ -368,148 +339,6 @@ var RTCMultiSession = function (options) {
 
       activedc.send(data)
     }
-  }
-}
-
-var FileSender = {
-  send: function (config) {
-    var channel = config.channel || new RTCMultiSession()
-    var file = config.file
-
-    /* if firefox nightly: share file blob directly */
-    if (moz) {
-      /* used on the receiver side to set received file name */
-      channel.send({
-        fileName: file.name,
-        type: 'file'
-      })
-
-      /* sending the entire file at once */
-      channel.send({
-        file: file
-      })
-
-      if (config.onFileSent) config.onFileSent(file)
-    }
-
-    /* if chrome */
-    if (!moz) {
-      var reader = new window.FileReader()
-      reader.readAsDataURL(file)
-      reader.onload = onReadAsDataURL
-    }
-
-    var packetSize = 1000 /* chars */ ,
-      textToTransfer = '',
-      numberOfPackets = 0,
-      packets = 0
-
-    function onReadAsDataURL (event, text) {
-      var data = {
-        type: 'file'
-      }
-
-      if (event) {
-        text = event.target.result
-        numberOfPackets = packets = data.packets = parseInt(text.length / packetSize)
-      }
-
-      if (config.onFileProgress)
-        config.onFileProgress({
-          remaining: packets--,
-          length: numberOfPackets,
-          sent: numberOfPackets - packets
-        })
-
-      if (text.length > packetSize) {
-        data.message = text.slice(0, packetSize)
-      } else {
-        data.message = text
-        data.last = true
-        data.name = file.name
-
-        if (config.onFileSent) config.onFileSent(file)
-      }
-
-      channel.send(data)
-
-      textToTransfer = text.slice(data.message.length)
-
-      if (textToTransfer.length)
-        setTimeout(function () {
-          onReadAsDataURL(null, textToTransfer)
-        }, 500)
-    }
-  }
-}
-
-function FileReceiver () {
-  var content = [],
-    fileName = '',
-    packets = 0,
-    numberOfPackets = 0
-
-  function receive (data, config) {
-    /* if firefox nightly & file blob shared */
-    if (moz) {
-      if (!data.size) {
-        var parsedData = JSON.parse(data)
-        if (parsedData.fileName) {
-          fileName = parsedData.fileName
-        }
-      } else {
-        var reader = new window.FileReader()
-        reader.readAsDataURL(data)
-        reader.onload = function (event) {
-          FileSaver.SaveToDisk(event.target.result, fileName)
-          if (config.onFileReceived) config.onFileReceived(fileName)
-        }
-      }
-    }
-
-    if (!moz) {
-      if (data.packets)
-        numberOfPackets = packets = parseInt(data.packets)
-
-      if (config.onFileProgress)
-        config.onFileProgress({
-          remaining: packets--,
-          length: numberOfPackets,
-          received: numberOfPackets - packets
-        })
-
-      content.push(data.message)
-
-      if (data.last) {
-        FileSaver.SaveToDisk(content.join(''), data.name)
-        if (config.onFileReceived)
-          config.onFileReceived(data.name)
-        content = []
-      }
-    }
-  }
-
-  return {
-    receive: receive
-  }
-}
-
-var FileSaver = {
-  SaveToDisk: function (fileUrl, fileName) {
-    var save = document.createElement('a')
-    save.href = fileUrl
-    save.target = '_blank'
-    save.download = fileName || fileUrl
-
-    var evt = new MouseEvent('click', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    })
-
-    save.dispatchEvent(evt)
-
-    ;(window.URL || window.webkitURL).revokeObjectURL(save.href)
   }
 }
 </script>
