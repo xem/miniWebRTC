@@ -1,0 +1,598 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>miniWebRTC</title>
+<script src="https://cjb.github.io/serverless-webrtc/js/jquery-2.0.0.js"></script>
+
+<h3>Create or join a room?</h3>
+<button id="createBtn">BOB: Create</button>
+<button id="joinBtn">ALICE: Join</button>
+
+<hr>
+
+<h3 id="myModalLabel">BOB: Send your local offer to ALICE</h3>
+<textarea id="localOffer" rows=10 cols=50></textarea>
+<br>
+
+<h3>Then, paste the "answer" you received</h3>
+<textarea id="remoteAnswer" rows=10 cols=50></textarea>
+<br>
+<button id="answerRecdBtn">Okay, I pasted it.</button>
+
+<hr>
+
+<h3>ALICE: Paste the "offer" you received</h3>
+<textarea id="remoteOffer" rows=10 cols=50></textarea>
+<br>
+<button id="offerRecdBtn">Okay, I pasted it.</button>
+
+<h3>Then, send your local answer to BOB</h3>
+<textarea id="localAnswer" rows=10 cols=50></textarea>
+<hr>
+
+
+Local video:
+<br>
+<video id="localVideo" width=200 height=200 style="border:1px solid"></video>
+<br>
+
+Remote video:
+<br>
+<video id="remoteVideo" width=200 height=200 style="border:1px solid"></video>
+<br>
+
+Chat:
+<br>
+<div id="chatlog" style="height:200px; overflow:auto; border:1px solid"></div>
+<br>
+
+<input type="text" id="messageTextBox" placeholder="Type your message here">
+<button id="sendMessageBtn" onclick="sendMessage()">Send message</button>
+<br>
+
+File:
+<br>
+<input type="file" id="fileBtn">
+
+<script>
+
+// BOB: create
+
+createBtn.onclick = function () {
+  navigator.getUserMedia = navigator.getUserMedia ||
+                           navigator.webkitGetUserMedia ||
+                           navigator.mozGetUserMedia ||
+                           navigator.msGetUserMedia
+  navigator.getUserMedia({video: true, audio: true}, function (stream) {
+    var video = document.getElementById('localVideo')
+    video.src = window.URL.createObjectURL(stream)
+    video.play()
+    pc1.addStream(stream)
+    setupDC1()
+    pc1.createOffer(function (desc) {
+      pc1.setLocalDescription(desc, function () {}, function () {})
+    },
+    function () { console.warn("Couldn't create offer") },
+    sdpConstraints)
+  }, function (error) {
+    console.log('Error adding stream to pc1: ' + error)
+  })
+};
+
+// BOB: pasted Alice's answer
+answerRecdBtn.onclick = function () {
+  var answer = $('#remoteAnswer').val()
+  var answerDesc = new RTCSessionDescription(JSON.parse(answer))
+  handleAnswerFromPC2(answerDesc)
+};
+
+
+// ALICE: join
+joinBtn.onclick = function () {
+  navigator.getUserMedia = navigator.getUserMedia ||
+                           navigator.webkitGetUserMedia ||
+                           navigator.mozGetUserMedia ||
+                           navigator.msGetUserMedia
+  navigator.getUserMedia({video: true, audio: true}, function (stream) {
+    var video = document.getElementById('localVideo')
+    video.src = window.URL.createObjectURL(stream)
+    video.play()
+    pc2.addStream(stream)
+  }, function (error) {
+    console.log('Error adding stream to pc2: ' + error)
+  })
+};
+
+// ALICE: pasted Bob's answer
+offerRecdBtn.onclick = function () {
+  var offer = $('#remoteOffer').val()
+  var offerDesc = new RTCSessionDescription(JSON.parse(offer))
+  writeToChatLog('Received remote offer', 'text-success')
+  handleOfferFromPC1(offerDesc)
+};
+
+
+// To cleanup
+
+var RTCPeerConnection = null
+var getUserMedia = null
+var attachMediaStream = null
+var reattachMediaStream = null
+var webrtcDetectedBrowser = null
+
+if (navigator.mozGetUserMedia) {
+  console.log('This appears to be Firefox')
+
+  webrtcDetectedBrowser = 'firefox'
+
+  // The RTCPeerConnection object.
+  RTCPeerConnection = mozRTCPeerConnection
+
+  // The RTCSessionDescription object.
+  RTCSessionDescription = mozRTCSessionDescription
+
+  // The RTCIceCandidate object.
+  RTCIceCandidate = mozRTCIceCandidate
+
+  // Get UserMedia (only difference is the prefix).
+  // Code from Adam Barth.
+  getUserMedia = navigator.mozGetUserMedia.bind(navigator)
+
+  // Attach a media stream to an element.
+  attachMediaStream = function (element, stream) {
+    console.log('Attaching media stream')
+    element.mozSrcObject = stream
+    element.play()
+  }
+
+  reattachMediaStream = function (to, from) {
+    console.log('Reattaching media stream')
+    to.mozSrcObject = from.mozSrcObject
+    to.play()
+  }
+
+  // Fake get{Video,Audio}Tracks
+  MediaStream.prototype.getVideoTracks = function () {
+    return []
+  }
+
+  MediaStream.prototype.getAudioTracks = function () {
+    return []
+  }
+} else if (navigator.webkitGetUserMedia) {
+  console.log('This appears to be Chrome')
+
+  webrtcDetectedBrowser = 'chrome'
+
+  // The RTCPeerConnection object.
+  RTCPeerConnection = webkitRTCPeerConnection
+
+  // Get UserMedia (only difference is the prefix).
+  // Code from Adam Barth.
+  getUserMedia = navigator.webkitGetUserMedia.bind(navigator)
+
+  // Attach a media stream to an element.
+  attachMediaStream = function (element, stream) {
+    element.src = webkitURL.createObjectURL(stream)
+  }
+
+  reattachMediaStream = function (to, from) {
+    to.src = from.src
+  }
+
+  // The representation of tracks in a stream is changed in M26.
+  // Unify them for earlier Chrome versions in the coexisting period.
+  if (!webkitMediaStream.prototype.getVideoTracks) {
+    webkitMediaStream.prototype.getVideoTracks = function () {
+      return this.videoTracks
+    }
+    webkitMediaStream.prototype.getAudioTracks = function () {
+      return this.audioTracks
+    }
+  }
+
+  // New syntax of getXXXStreams method in M26.
+  if (!webkitRTCPeerConnection.prototype.getLocalStreams) {
+    webkitRTCPeerConnection.prototype.getLocalStreams = function () {
+      return this.localStreams
+    }
+    webkitRTCPeerConnection.prototype.getRemoteStreams = function () {
+      return this.remoteStreams
+    }
+  }
+} else {
+  console.log('Browser does not appear to be WebRTC-capable')
+}
+
+
+/* See also:
+    http://www.html5rocks.com/en/tutorials/webrtc/basics/
+    https://code.google.com/p/webrtc-samples/source/browse/trunk/apprtc/index.html
+
+    https://webrtc-demos.appspot.com/html/pc1.html
+*/
+
+var cfg = {'iceServers': [{'url': 'stun:23.21.150.121'}]},
+  con = { 'optional': [{'DtlsSrtpKeyAgreement': true}] }
+
+/* THIS IS ALICE, THE CALLER/SENDER */
+
+var pc1 = new RTCPeerConnection(cfg, con),
+  dc1 = null, tn1 = null
+
+// Since the same JS file contains code for both sides of the connection,
+// activedc tracks which of the two possible datachannel variables we're using.
+var activedc
+
+var pc1icedone = false
+
+var sdpConstraints = {
+  optional: [],
+  mandatory: {
+    OfferToReceiveAudio: true,
+    OfferToReceiveVideo: true
+  }
+}
+
+$('#fileBtn').change(function () {
+  var file = this.files[0]
+
+  sendFile(file)
+})
+
+function fileSent (file) {
+  console.log(file + ' sent')
+}
+
+function fileProgress (file) {
+  console.log(file + ' progress')
+}
+
+function sendFile (data) {
+  if (data.size) {
+    FileSender.send({
+      file: data,
+      onFileSent: fileSent,
+      onFileProgress: fileProgress,
+    })
+  }
+}
+
+function sendMessage () {
+  if ($('#messageTextBox').val()) {
+    var channel = new RTCMultiSession()
+    writeToChatLog($('#messageTextBox').val(), 'text-success')
+    channel.send({message: $('#messageTextBox').val()})
+    $('#messageTextBox').val('')
+
+    // Scroll chat text area to the bottom on new input.
+    $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+  }
+
+  return false
+}
+
+function setupDC1 () {
+  try {
+    var fileReceiver1 = new FileReceiver()
+    dc1 = pc1.createDataChannel('test', {reliable: true})
+    activedc = dc1
+    console.log('Created datachannel (pc1)')
+    dc1.onopen = function (e) {
+    }
+    dc1.onmessage = function (e) {
+      console.log('Got message (pc1)', e.data)
+      if (e.data.size) {
+        fileReceiver1.receive(e.data, {})
+      } else {
+        if (e.data.charCodeAt(0) == 2) {
+          // The first message we get from Firefox (but not Chrome)
+          // is literal ASCII 2 and I don't understand why -- if we
+          // leave it in, JSON.parse() will barf.
+          return
+        }
+        console.log(e)
+        var data = JSON.parse(e.data)
+        if (data.type === 'file') {
+          fileReceiver1.receive(e.data, {})
+        } else {
+          writeToChatLog(data.message, 'text-info')
+          // Scroll chat text area to the bottom on new input.
+          $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+        }
+      }
+    }
+  } catch (e) { console.warn('No data channel (pc1)', e); }
+}
+
+pc1.onicecandidate = function (e) {
+  console.log('ICE candidate (pc1)', e)
+  if (e.candidate == null) {
+    $('#localOffer').html(JSON.stringify(pc1.localDescription))
+  }
+}
+
+function handleOnaddstream (e) {
+  console.log('Got remote stream', e.stream)
+  var el = document.getElementById('remoteVideo')
+  el.autoplay = true
+  attachMediaStream(el, e.stream)
+}
+
+pc1.onaddstream = handleOnaddstream
+
+function handleOnconnection () {
+  console.log('Datachannel connected')
+  writeToChatLog('Datachannel connected', 'text-success')
+  // If we didn't call remove() here, there would be a race on pc2:
+  //   - first onconnection() hides the dialog, then someone clicks
+  //     on answerSentBtn which shows it, and it stays shown forever.
+}
+
+pc1.onconnection = handleOnconnection
+
+function onsignalingstatechange (state) {
+  console.info('signaling state change:', state)
+}
+
+function oniceconnectionstatechange (state) {
+  console.info('ice connection state change:', state)
+}
+
+function onicegatheringstatechange (state) {
+  console.info('ice gathering state change:', state)
+}
+
+pc1.onsignalingstatechange = onsignalingstatechange
+pc1.oniceconnectionstatechange = oniceconnectionstatechange
+pc1.onicegatheringstatechange = onicegatheringstatechange
+
+function handleAnswerFromPC2 (answerDesc) {
+  console.log('Received remote answer: ', answerDesc)
+  writeToChatLog('Received remote answer', 'text-success')
+  pc1.setRemoteDescription(answerDesc)
+}
+
+function handleCandidateFromPC2 (iceCandidate) {
+  pc1.addIceCandidate(iceCandidate)
+}
+
+/* THIS IS BOB, THE ANSWERER/RECEIVER */
+
+var pc2 = new RTCPeerConnection(cfg, con),
+  dc2 = null
+
+var pc2icedone = false
+
+pc2.ondatachannel = function (e) {
+  var fileReceiver2 = new FileReceiver()
+  var datachannel = e.channel || e; // Chrome sends event, FF sends raw channel
+  console.log('Received datachannel (pc2)', arguments)
+  dc2 = datachannel
+  activedc = dc2
+  dc2.onopen = function (e) {
+  }
+  dc2.onmessage = function (e) {
+    console.log('Got message (pc2)', e.data)
+    if (e.data.size) {
+      fileReceiver2.receive(e.data, {})
+    } else {
+      var data = JSON.parse(e.data)
+      if (data.type === 'file') {
+        fileReceiver2.receive(e.data, {})
+      } else {
+        writeToChatLog(data.message, 'text-info')
+        // Scroll chat text area to the bottom on new input.
+        $('#chatlog').scrollTop($('#chatlog')[0].scrollHeight)
+      }
+    }
+  }
+}
+
+function handleOfferFromPC1 (offerDesc) {
+  pc2.setRemoteDescription(offerDesc)
+  pc2.createAnswer(function (answerDesc) {
+    writeToChatLog('Created local answer', 'text-success')
+    console.log('Created local answer: ', answerDesc)
+    pc2.setLocalDescription(answerDesc)
+  },
+  function () { console.warn("Couldn't create offer") },
+  sdpConstraints)
+}
+
+pc2.onicecandidate = function (e) {
+  console.log('ICE candidate (pc2)', e)
+  if (e.candidate == null) {
+    $('#localAnswer').html(JSON.stringify(pc2.localDescription))
+  }
+}
+
+pc2.onsignalingstatechange = onsignalingstatechange
+pc2.oniceconnectionstatechange = oniceconnectionstatechange
+pc2.onicegatheringstatechange = onicegatheringstatechange
+
+function handleCandidateFromPC1 (iceCandidate) {
+  pc2.addIceCandidate(iceCandidate)
+}
+
+pc2.onaddstream = handleOnaddstream
+pc2.onconnection = handleOnconnection
+
+function getTimestamp () {
+  var totalSec = new Date().getTime() / 1000
+  var hours = parseInt(totalSec / 3600) % 24
+  var minutes = parseInt(totalSec / 60) % 60
+  var seconds = parseInt(totalSec % 60)
+
+  var result = (hours < 10 ? '0' + hours : hours) + ':' +
+    (minutes < 10 ? '0' + minutes : minutes) + ':' +
+    (seconds < 10 ? '0' + seconds : seconds)
+
+  return result
+}
+
+function writeToChatLog (message, message_type) {
+  document.getElementById('chatlog').innerHTML += '<p class="' + message_type + '">' + '[' + getTimestamp() + '] ' + message + '</p>'
+}
+
+/*  MIT License: https://webrtc-experiment.appspot.com/licence/
+ *	2013, Muaz Khan<muazkh>--[ github.com/muaz-khan ]
+ */
+/* For documentation and examples: http://bit.ly/RTCDataConnection */
+
+window.moz = !! navigator.mozGetUserMedia
+
+var RTCMultiSession = function (options) {
+  return {
+    send: function (message) {
+      if (moz && message.file)
+        data = message.file
+      else
+        data = JSON.stringify(message)
+
+      activedc.send(data)
+    }
+  }
+}
+
+var FileSender = {
+  send: function (config) {
+    var channel = config.channel || new RTCMultiSession()
+    var file = config.file
+
+    /* if firefox nightly: share file blob directly */
+    if (moz) {
+      /* used on the receiver side to set received file name */
+      channel.send({
+        fileName: file.name,
+        type: 'file'
+      })
+
+      /* sending the entire file at once */
+      channel.send({
+        file: file
+      })
+
+      if (config.onFileSent) config.onFileSent(file)
+    }
+
+    /* if chrome */
+    if (!moz) {
+      var reader = new window.FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = onReadAsDataURL
+    }
+
+    var packetSize = 1000 /* chars */ ,
+      textToTransfer = '',
+      numberOfPackets = 0,
+      packets = 0
+
+    function onReadAsDataURL (event, text) {
+      var data = {
+        type: 'file'
+      }
+
+      if (event) {
+        text = event.target.result
+        numberOfPackets = packets = data.packets = parseInt(text.length / packetSize)
+      }
+
+      if (config.onFileProgress)
+        config.onFileProgress({
+          remaining: packets--,
+          length: numberOfPackets,
+          sent: numberOfPackets - packets
+        })
+
+      if (text.length > packetSize) {
+        data.message = text.slice(0, packetSize)
+      } else {
+        data.message = text
+        data.last = true
+        data.name = file.name
+
+        if (config.onFileSent) config.onFileSent(file)
+      }
+
+      channel.send(data)
+
+      textToTransfer = text.slice(data.message.length)
+
+      if (textToTransfer.length)
+        setTimeout(function () {
+          onReadAsDataURL(null, textToTransfer)
+        }, 500)
+    }
+  }
+}
+
+function FileReceiver () {
+  var content = [],
+    fileName = '',
+    packets = 0,
+    numberOfPackets = 0
+
+  function receive (data, config) {
+    /* if firefox nightly & file blob shared */
+    if (moz) {
+      if (!data.size) {
+        var parsedData = JSON.parse(data)
+        if (parsedData.fileName) {
+          fileName = parsedData.fileName
+        }
+      } else {
+        var reader = new window.FileReader()
+        reader.readAsDataURL(data)
+        reader.onload = function (event) {
+          FileSaver.SaveToDisk(event.target.result, fileName)
+          if (config.onFileReceived) config.onFileReceived(fileName)
+        }
+      }
+    }
+
+    if (!moz) {
+      if (data.packets)
+        numberOfPackets = packets = parseInt(data.packets)
+
+      if (config.onFileProgress)
+        config.onFileProgress({
+          remaining: packets--,
+          length: numberOfPackets,
+          received: numberOfPackets - packets
+        })
+
+      content.push(data.message)
+
+      if (data.last) {
+        FileSaver.SaveToDisk(content.join(''), data.name)
+        if (config.onFileReceived)
+          config.onFileReceived(data.name)
+        content = []
+      }
+    }
+  }
+
+  return {
+    receive: receive
+  }
+}
+
+var FileSaver = {
+  SaveToDisk: function (fileUrl, fileName) {
+    var save = document.createElement('a')
+    save.href = fileUrl
+    save.target = '_blank'
+    save.download = fileName || fileUrl
+
+    var evt = new MouseEvent('click', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    })
+
+    save.dispatchEvent(evt)
+
+    ;(window.URL || window.webkitURL).revokeObjectURL(save.href)
+  }
+}
+</script>
