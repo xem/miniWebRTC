@@ -48,7 +48,7 @@ createBtn.onclick = function() {
       if (data.type === 'file') {
         fileReceiver1.receive(e.data, {})
       } else {
-        writeToChatLog(data.message);
+        chatlog.innerHTML += '[' + new Date() + '] ' + data.message + '</p>';
         chatlog.scrollTop = chatlog.scrollHeight
       }
     }
@@ -92,9 +92,8 @@ var sdpConstraints = {
 
 function sendMessage () {
   if (messageTextBox.value) {
-    var channel = new RTCMultiSession()
-    channel.send({message: messageTextBox.value})
-    writeToChatLog(messageTextBox.value);
+    activedc.send(JSON.stringify({message: messageTextBox.value}));
+    chatlog.innerHTML += '[' + new Date() + '] ' + messageTextBox.value + '</p>';
     messageTextBox.value = "";
   }
   return false
@@ -121,7 +120,7 @@ pc2.ondatachannel = function (e) {
       if (data.type === 'file') {
         fileReceiver2.receive(e.data, {})
       } else {
-        writeToChatLog(data.message);
+        chatlog.innerHTML += '[' + new Date() + '] ' + data.message + '</p>';
         chatlog.scrollTop = chatlog.scrollHeight;
       }
     }
@@ -131,24 +130,6 @@ pc2.ondatachannel = function (e) {
 pc2.onicecandidate = function (e) {
   if (e.candidate == null) {
     localAnswer.value = JSON.stringify(pc2.localDescription);
-  }
-}
-
-function writeToChatLog (message) {
-  chatlog.innerHTML += '[' + new Date() + '] ' + message + '</p>'
-}
-
-window.moz = !! navigator.mozGetUserMedia
-
-var RTCMultiSession = function (options) {
-  return {
-    send: function (message) {
-      if (moz && message.file)
-        data = message.file
-      else
-        data = JSON.stringify(message)
-      activedc.send(data)
-    }
   }
 }
 </script>
