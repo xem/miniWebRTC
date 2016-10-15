@@ -5,176 +5,86 @@
 <h3>Create or join a room?</h3>
 <button id="createBtn">BOB: Create</button>
 <button id="joinBtn">ALICE: Join</button>
-
 <hr>
-
 <h3 id="myModalLabel">BOB: Send your local offer to ALICE</h3>
-<textarea id="localOffer" rows=10 cols=50></textarea>
+<input id="localOffer" rows=10 cols=50>
 <br>
-
 <h3>Then, paste the "answer" you received</h3>
-<textarea id="remoteAnswer" rows=10 cols=50></textarea>
+<input id="remoteAnswer" rows=10 cols=50>
+<br>
 <br>
 <button id="answerRecdBtn">Okay, I pasted it.</button>
-
 <hr>
-
 <h3>ALICE: Paste the "offer" you received</h3>
-<textarea id="remoteOffer" rows=10 cols=50></textarea>
+<input id="remoteOffer" rows=10 cols=50>
+<br>
 <br>
 <button id="offerRecdBtn">Okay, I pasted it.</button>
-
 <h3>Then, send your local answer to BOB</h3>
-<textarea id="localAnswer" rows=10 cols=50></textarea>
+<input id="localAnswer" rows=10 cols=50>
 <hr>
-
 Chat:
 <br>
 <div id="chatlog" style="height:200px; overflow:auto; border:1px solid"></div>
 <br>
-
 <input type="text" id="messageTextBox" placeholder="Type your message here">
 <button id="sendMessageBtn" onclick="sendMessage()">Send message</button>
-
-
 <script>
-localOffer.value = "";
-remoteAnswer.value = "";
-remoteOffer.value = "";
-localAnswer.value = "";
-
+localOffer.value = remoteAnswer.value = remoteOffer.value = localAnswer.value = "";
 
 // BOB: create
-
-createBtn.onclick = function () {
-  setupDC1();
-  pc1.createOffer(function (desc) {
-    pc1.setLocalDescription(desc, function () {}, function () {})
-  }, function () {
-  
-  }, sdpConstraints)
+createBtn.onclick = function() {
+  dc1 = pc1.createDataChannel('test', {reliable: true})
+  activedc = dc1
+  dc1.onopen = function(e) { }
+  dc1.onmessage = function(e) {
+    if (e.data.size) {
+      fileReceiver1.receive(e.data, {})
+    } else {
+      if (e.data.charCodeAt(0) == 2) {
+        return
+      }
+      var data = JSON.parse(e.data)
+      if (data.type === 'file') {
+        fileReceiver1.receive(e.data, {})
+      } else {
+        writeToChatLog(data.message);
+        chatlog.scrollTop = chatlog.scrollHeight
+      }
+    }
+  }
+  pc1.createOffer(function(desc) {
+    pc1.setLocalDescription(desc, function() {}, function() {})
+  }, function() { }, sdpConstraints)
 };
 
 // BOB: pasted Alice's answer
 answerRecdBtn.onclick = function () {
   var answer = remoteAnswer.value;
   var answerDesc = new RTCSessionDescription(JSON.parse(answer))
-  handleAnswerFromPC2(answerDesc)
+  pc1.setRemoteDescription(answerDesc);
 };
-
-
-// ALICE: join
-joinBtn.onclick = function () {};
 
 // ALICE: pasted Bob's answer
-offerRecdBtn.onclick = function () {
+offerRecdBtn.onclick = function() {
   var offer = remoteOffer.value;
   var offerDesc = new RTCSessionDescription(JSON.parse(offer))
-  handleOfferFromPC1(offerDesc)
+  pc2.setRemoteDescription(offerDesc)
+  pc2.createAnswer(function(answerDesc) {
+    pc2.setLocalDescription(answerDesc)
+  },
+  function () { },
+  sdpConstraints)
 };
 
-
-// To cleanup
-
-var RTCPeerConnection = null
-var getUserMedia = null
-var attachMediaStream = null
-var reattachMediaStream = null
-var webrtcDetectedBrowser = null
-
-if (navigator.mozGetUserMedia) {
-
-  webrtcDetectedBrowser = 'firefox'
-
-  // The RTCPeerConnection object.
-  RTCPeerConnection = mozRTCPeerConnection
-
-  // The RTCSessionDescription object.
-  RTCSessionDescription = mozRTCSessionDescription
-
-  // The RTCIceCandidate object.
-  RTCIceCandidate = mozRTCIceCandidate
-
-  // Get UserMedia (only difference is the prefix).
-  // Code from Adam Barth.
-  getUserMedia = navigator.mozGetUserMedia.bind(navigator)
-
-  // Attach a media stream to an element.
-  attachMediaStream = function (element, stream) {
-    element.mozSrcObject = stream
-    element.play()
-  }
-
-  reattachMediaStream = function (to, from) {
-    to.mozSrcObject = from.mozSrcObject
-    to.play()
-  }
-
-  // Fake get{Video,Audio}Tracks
-  MediaStream.prototype.getVideoTracks = function () {
-    return []
-  }
-
-  MediaStream.prototype.getAudioTracks = function () {
-    return []
-  }
-} else if (navigator.webkitGetUserMedia) {
-
-  webrtcDetectedBrowser = 'chrome'
-
-  // The RTCPeerConnection object.
+if (navigator.webkitGetUserMedia) {
   RTCPeerConnection = webkitRTCPeerConnection
-
-  // Get UserMedia (only difference is the prefix).
-  // Code from Adam Barth.
-  getUserMedia = navigator.webkitGetUserMedia.bind(navigator)
-
-  // Attach a media stream to an element.
-  attachMediaStream = function (element, stream) {
-    element.src = webkitURL.createObjectURL(stream)
-  }
-
-  reattachMediaStream = function (to, from) {
-    to.src = from.src
-  }
-
-  // The representation of tracks in a stream is changed in M26.
-  // Unify them for earlier Chrome versions in the coexisting period.
-  if (!webkitMediaStream.prototype.getVideoTracks) {
-    webkitMediaStream.prototype.getVideoTracks = function () {
-      return this.videoTracks
-    }
-    webkitMediaStream.prototype.getAudioTracks = function () {
-      return this.audioTracks
-    }
-  }
-
-  // New syntax of getXXXStreams method in M26.
-  if (!webkitRTCPeerConnection.prototype.getLocalStreams) {
-    webkitRTCPeerConnection.prototype.getLocalStreams = function () {
-      return this.localStreams
-    }
-    webkitRTCPeerConnection.prototype.getRemoteStreams = function () {
-      return this.remoteStreams
-    }
-  }
-} else {
 }
 
+var cfg = {'iceServers': [{'url': "stun:stun.gmx.net"}]},
+con = { 'optional': [{'DtlsSrtpKeyAgreement': true}] }
 
-var cfg = {'iceServers': [{'url': 'stun:23.21.150.121'}]},
-  con = { 'optional': [{'DtlsSrtpKeyAgreement': true}] }
-
-/* THIS IS ALICE, THE CALLER/SENDER */
-
-var pc1 = new RTCPeerConnection(cfg, con),
-  dc1 = null, tn1 = null
-
-// Since the same JS file contains code for both sides of the connection,
-// activedc tracks which of the two possible datachannel variables we're using.
-var activedc
-
-var pc1icedone = false
+var pc1 = new RTCPeerConnection(cfg, con), dc1 = null, tn1 = null, activedc, pc1icedone = false;
 
 var sdpConstraints = {
   optional: [],
@@ -186,42 +96,8 @@ function sendMessage () {
     channel.send({message: messageTextBox.value})
     writeToChatLog(messageTextBox.value);
     messageTextBox.value = "";
-
-    // Scroll chat text area to the bottom on new input.
-    chatlog.scrollTop = chatlog.scrollHeight;
   }
-
   return false
-}
-
-function setupDC1 () {
-  try {
-
-    dc1 = pc1.createDataChannel('test', {reliable: true})
-    activedc = dc1
-    dc1.onopen = function (e) { }
-    dc1.onmessage = function (e) {
-      if (e.data.size) {
-        fileReceiver1.receive(e.data, {})
-      } else {
-        if (e.data.charCodeAt(0) == 2) {
-          // The first message we get from Firefox (but not Chrome)
-          // is literal ASCII 2 and I don't understand why -- if we
-          // leave it in, JSON.parse() will barf.
-          return
-        }
-        var data = JSON.parse(e.data)
-        if (data.type === 'file') {
-          fileReceiver1.receive(e.data, {})
-        } else {
-          writeToChatLog(data.message);
-          
-          // Scroll chat text area to the bottom on new input.
-          chatlog.scrollTop = chatlog.scrollHeight
-        }
-      }
-    }
-  } catch (e) { }
 }
 
 pc1.onicecandidate = function (e) {
@@ -230,42 +106,10 @@ pc1.onicecandidate = function (e) {
   }
 }
 
-function handleOnconnection () {
-  writeToChatLog('Datachannel connected')
-}
-
-pc1.onconnection = handleOnconnection
-
-function onsignalingstatechange (state) {
-}
-
-function oniceconnectionstatechange (state) {
-}
-
-function onicegatheringstatechange (state) {
-}
-
-pc1.onsignalingstatechange = onsignalingstatechange
-pc1.oniceconnectionstatechange = oniceconnectionstatechange
-pc1.onicegatheringstatechange = onicegatheringstatechange
-
-function handleAnswerFromPC2 (answerDesc) {
-  pc1.setRemoteDescription(answerDesc)
-}
-
-function handleCandidateFromPC2 (iceCandidate) {
-  pc1.addIceCandidate(iceCandidate)
-}
-
-/* THIS IS BOB, THE ANSWERER/RECEIVER */
-
-var pc2 = new RTCPeerConnection(cfg, con),
-  dc2 = null
-
-var pc2icedone = false
+var pc2 = new RTCPeerConnection(cfg, con), dc2 = null, pc2icedone = false;
 
 pc2.ondatachannel = function (e) {
-  var datachannel = e.channel || e; // Chrome sends event, FF sends raw channel
+  var datachannel = e.channel || e;
   dc2 = datachannel
   activedc = dc2
   dc2.onopen = function (e) { }
@@ -278,20 +122,10 @@ pc2.ondatachannel = function (e) {
         fileReceiver2.receive(e.data, {})
       } else {
         writeToChatLog(data.message);
-        // Scroll chat text area to the bottom on new input.
         chatlog.scrollTop = chatlog.scrollHeight;
       }
     }
   }
-}
-
-function handleOfferFromPC1 (offerDesc) {
-  pc2.setRemoteDescription(offerDesc)
-  pc2.createAnswer(function (answerDesc) {
-    pc2.setLocalDescription(answerDesc)
-  },
-  function () { },
-  sdpConstraints)
 }
 
 pc2.onicecandidate = function (e) {
@@ -300,31 +134,8 @@ pc2.onicecandidate = function (e) {
   }
 }
 
-pc2.onsignalingstatechange = onsignalingstatechange
-pc2.oniceconnectionstatechange = oniceconnectionstatechange
-pc2.onicegatheringstatechange = onicegatheringstatechange
-
-function handleCandidateFromPC1 (iceCandidate) {
-  pc2.addIceCandidate(iceCandidate)
-}
-
-pc2.onconnection = handleOnconnection
-
-function getTimestamp () {
-  var totalSec = new Date().getTime() / 1000
-  var hours = parseInt(totalSec / 3600) % 24
-  var minutes = parseInt(totalSec / 60) % 60
-  var seconds = parseInt(totalSec % 60)
-
-  var result = (hours < 10 ? '0' + hours : hours) + ':' +
-    (minutes < 10 ? '0' + minutes : minutes) + ':' +
-    (seconds < 10 ? '0' + seconds : seconds)
-
-  return result
-}
-
 function writeToChatLog (message) {
-  chatlog.innerHTML += '[' + getTimestamp() + '] ' + message + '</p>'
+  chatlog.innerHTML += '[' + new Date() + '] ' + message + '</p>'
 }
 
 window.moz = !! navigator.mozGetUserMedia
@@ -336,7 +147,6 @@ var RTCMultiSession = function (options) {
         data = message.file
       else
         data = JSON.stringify(message)
-
       activedc.send(data)
     }
   }
